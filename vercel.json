@@ -2,14 +2,8 @@
   "version": 2,
   "builds": [
     {
-      "src": "plagiarism-detector.html",
+      "src": "index.html",
       "use": "@vercel/static"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "plagiarism-detector.html"
     }
   ]
 }
