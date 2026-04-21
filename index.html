@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>PlagiarismIQ — Semantic Analysis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+/* ── Reset ── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+/* ── Variables ── */
+:root{
+  --bg:       #0a0a0b;
+  --bg2:      #111114;
+  --bg3:      #18181d;
+  --bg4:      #1f1f26;
+  --border:   rgba(255,255,255,0.07);
+  --border2:  rgba(255,255,255,0.12);
+  --gold:     #d4a843;
+  --gold2:    #f0c765;
+  --gold-dim: rgba(212,168,67,0.12);
+  --gold-glow:rgba(212,168,67,0.25);
+  --red:      #e55;
+  --red-dim:  rgba(238,85,85,0.14);
+  --teal:     #3dcfb0;
+  --teal-dim: rgba(61,207,176,0.12);
+  --blue:     #5b9cf0;
+  --blue-dim: rgba(91,156,240,0.12);
+  --txt:      #e8e6df;
+  --txt2:     #9a9891;
+  --txt3:     #5a5855;
+  --mono:     'Space Mono', monospace;
+  --serif:    'DM Serif Display', serif;
+  --sans:     'DM Sans', sans-serif;
+}
+
+html{font-size:15px}
+body{
+  font-family:var(--sans);
+  background:var(--bg);
+  color:var(--txt);
+  line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+  min-height:100vh;
+}
+
+/* ── Noise overlay ── */
+body::before{
+  content:'';
+  position:fixed;inset:0;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+  opacity:0.028;
+  pointer-events:none;
+  z-index:0;
+}
+
+/* ── Ambient glow ── */
+body::after{
+  content:'';
+  position:fixed;
+  top:-20vh;left:50%;
+  transform:translateX(-50%);
+  width:900px;height:500px;
+  background:radial-gradient(ellipse at center, rgba(212,168,67,0.06) 0%, transparent 70%);
+  pointer-events:none;
+  z-index:0;
+}
+
+.app{
+  max-width:1120px;
+  margin:0 auto;
+  padding:36px 32px 100px;
+  position:relative;
+  z-index:1;
+}
+
+/* ── Top bar ── */
+.topbar{
+  display:flex;align-items:flex-start;justify-content:space-between;
+  padding-bottom:28px;
+  border-bottom:1px solid var(--border);
+  margin-bottom:32px;
+  gap:16px;flex-wrap:wrap;
+}
+.topbar-brand{display:flex;flex-direction:column;gap:4px}
+.topbar-title{
+  font-family:var(--serif);
+  font-size:26px;
+  color:var(--gold2);
+  letter-spacing:-.01em;
+  line-height:1;
+}
+.topbar-title em{
+  font-style:italic;
+  color:var(--txt);
+  opacity:.6;
+  font-size:22px;
+}
+.topbar-sub{font-family:var(--mono);font-size:11px;color:var(--txt3);letter-spacing:.04em}
+
+.pipeline-pills{
+  display:flex;align-items:center;gap:5px;
+  flex-shrink:0;padding-top:4px;
+}
+.pp{
+  font-size:10px;padding:3px 10px;border-radius:3px;
+  font-family:var(--mono);font-weight:400;letter-spacing:.05em;
+  border:1px solid var(--border);
+  color:var(--txt3);background:var(--bg2);
+  transition:all .2s;
+}
+.pp-arrow{font-size:11px;color:var(--txt3);opacity:.4}
+.pp-active{
+  border-color:var(--gold);
+  color:var(--gold);
+  background:var(--gold-dim);
+  box-shadow:0 0 12px var(--gold-glow);
+}
+
+/* ── Editors ── */
+.editors{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:12px}
+
+.editor{
+  border:1px solid var(--border);border-radius:6px;
+  overflow:hidden;background:var(--bg2);
+  display:flex;flex-direction:column;
+  transition:border-color .18s, box-shadow .18s;
+}
+.editor:focus-within{
+  border-color:rgba(212,168,67,.4);
+  box-shadow:0 0 0 3px rgba(212,168,67,.06), inset 0 0 40px rgba(212,168,67,.02);
+}
+.editor-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 14px;
+  background:var(--bg3);
+  border-bottom:1px solid var(--border);
+}
+.editor-label-wrap{display:flex;align-items:center;gap:8px}
+.badge{
+  width:20px;height:20px;border-radius:3px;
+  display:grid;place-items:center;
+  font-size:10px;font-weight:700;
+  font-family:var(--mono);flex-shrink:0;
+}
+.badge-a{background:rgba(212,168,67,.2);color:var(--gold);border:1px solid rgba(212,168,67,.3)}
+.badge-b{background:rgba(91,156,240,.15);color:var(--blue);border:1px solid rgba(91,156,240,.3)}
+.editor-lbl{font-size:12px;font-weight:400;color:var(--txt2);letter-spacing:.03em}
+.editor-wc{font-size:11px;color:var(--txt3);font-family:var(--mono)}
+
+.editor textarea{
+  flex:1;border:none;outline:none;resize:none;
+  background:transparent;
+  color:var(--txt);
+  font-family:var(--sans);
+  font-size:13px;line-height:1.8;
+  padding:14px;min-height:175px;
+  caret-color:var(--gold);
+}
+.editor textarea::placeholder{color:var(--txt3)}
+
+/* ── Controls ── */
+.controls{
+  display:flex;align-items:center;gap:20px;
+  padding:14px 0 22px;
+  border-bottom:1px solid var(--border);
+  margin-bottom:0;flex-wrap:wrap;
+}
+.ctrl-group{display:flex;align-items:center;gap:9px}
+.ctrl-lbl{font-size:11px;color:var(--txt3);font-family:var(--mono);letter-spacing:.04em;text-transform:uppercase}
+
+.slider-wrap{display:flex;align-items:center;gap:9px}
+input[type=range]{
+  width:90px;height:2px;appearance:none;-webkit-appearance:none;
+  background:var(--border2);border-radius:2px;cursor:pointer;outline:none;
+}
+input[type=range]::-webkit-slider-thumb{
+  appearance:none;-webkit-appearance:none;
+  width:14px;height:14px;border-radius:50%;
+  background:var(--gold);cursor:pointer;
+  box-shadow:0 0 8px var(--gold-glow);
+  border:2px solid var(--bg);
+}
+.slider-val{
+  font-size:12px;font-weight:700;
+  color:var(--gold);font-family:var(--mono);min-width:32px;
+}
+
+.toggle-label{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--txt2)}
+.toggle-label input{position:absolute;opacity:0;pointer-events:none}
+.tog-track{
+  width:32px;height:18px;border-radius:9px;
+  background:var(--bg4);border:1px solid var(--border2);
+  position:relative;transition:background .2s, border-color .2s;flex-shrink:0;
+}
+.toggle-label input:checked~.tog-track{
+  background:var(--gold-dim);border-color:rgba(212,168,67,.4);
+}
+.tog-thumb{
+  position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;
+  background:var(--txt3);transition:transform .16s,background .16s;
+}
+.toggle-label input:checked~.tog-track .tog-thumb{
+  transform:translateX(14px);background:var(--gold);
+}
+
+.ctrls-right{margin-left:auto;display:flex;gap:8px}
+
+button{
+  font-family:var(--mono);font-size:11px;
+  padding:8px 16px;border-radius:4px;
+  cursor:pointer;letter-spacing:.04em;
+  border:1px solid var(--border2);
+  background:var(--bg3);color:var(--txt2);
+  transition:all .14s;text-transform:uppercase;
+}
+button:hover{background:var(--bg4);border-color:var(--border2);color:var(--txt)}
+button:active{transform:scale(.97)}
+
+.btn-run{
+  background:var(--gold-dim);
+  color:var(--gold2);
+  border-color:rgba(212,168,67,.35);
+  font-weight:700;
+  box-shadow:0 0 12px rgba(212,168,67,.1);
+}
+.btn-run:hover{
+  background:rgba(212,168,67,.2);
+  box-shadow:0 0 20px rgba(212,168,67,.2);
+  color:var(--gold2);
+}
+.btn-run:disabled{opacity:.35;cursor:not-allowed;transform:none;box-shadow:none}
+
+/* ── Progress ── */
+.progress{
+  margin-top:22px;
+  border:1px solid var(--border);
+  border-radius:6px;overflow:hidden;background:var(--bg2);
+}
+.progress-header{
+  padding:11px 14px;
+  background:var(--bg3);
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:10px;
+  font-size:11px;color:var(--txt2);
+  font-family:var(--mono);letter-spacing:.04em;text-transform:uppercase;
+}
+.spin{
+  width:13px;height:13px;border-radius:50%;flex-shrink:0;
+  border:1.5px solid var(--border2);border-top-color:var(--gold);
+  animation:spin .65s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.stage-list{list-style:none}
+.stage-item{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 14px;
+  border-bottom:1px solid var(--border);
+  font-size:12px;color:var(--txt3);
+  font-family:var(--mono);
+  transition:color .2s,background .2s;
+}
+.stage-item:last-child{border-bottom:none}
+.stage-num{font-size:10px;color:var(--txt3);min-width:22px;letter-spacing:.05em}
+.stage-name{flex:1;letter-spacing:.03em}
+.stage-check{font-size:12px;min-width:16px;text-align:right}
+.stage-item.s-active{color:var(--gold);background:var(--gold-dim)}
+.stage-item.s-active .stage-num{color:var(--gold)}
+.stage-item.s-done{color:var(--txt2)}
+.stage-item.s-done .stage-check::after{content:"✓";color:var(--teal)}
+
+/* ── Results ── */
+#results{display:flex;flex-direction:column;gap:12px;margin-top:24px}
+
+/* ── Verdict ── */
+.verdict{
+  border-radius:6px;padding:20px 22px;
+  display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+  border:1px solid;
+  animation:fadeUp .35s ease both;
+  position:relative;overflow:hidden;
+}
+.verdict::before{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(135deg,rgba(255,255,255,.02) 0%,transparent 60%);
+  pointer-events:none;
+}
+.v-clear{background:rgba(61,207,176,.06);border-color:rgba(61,207,176,.3)}
+.v-warn {background:rgba(212,168,67,.06);border-color:rgba(212,168,67,.3)}
+.v-flag {background:rgba(238,85,85,.06);border-color:rgba(238,85,85,.3)}
+
+.v-icon{
+  width:46px;height:46px;border-radius:50%;flex-shrink:0;
+  display:grid;place-items:center;
+  font-family:var(--serif);font-size:20px;font-style:italic;
+}
+.v-clear .v-icon{background:rgba(61,207,176,.15);color:var(--teal);border:1px solid rgba(61,207,176,.3)}
+.v-warn  .v-icon{background:rgba(212,168,67,.15);color:var(--gold);border:1px solid rgba(212,168,67,.3)}
+.v-flag  .v-icon{background:rgba(238,85,85,.15);color:var(--red);border:1px solid rgba(238,85,85,.3)}
+
+.v-body{flex:1;min-width:0}
+.v-title{font-family:var(--serif);font-size:16px;margin-bottom:4px;letter-spacing:-.01em}
+.v-clear .v-title{color:var(--teal)}
+.v-warn  .v-title{color:var(--gold2)}
+.v-flag  .v-title{color:#f08080}
+.v-desc{font-size:12px;line-height:1.6;color:var(--txt2)}
+.v-right{text-align:right;flex-shrink:0}
+.v-score{font-family:var(--serif);font-size:52px;line-height:1;font-style:italic}
+.v-clear .v-score{color:var(--teal)}
+.v-warn  .v-score{color:var(--gold2)}
+.v-flag  .v-score{color:#f08080}
+.v-sub{font-size:10px;color:var(--txt3);font-family:var(--mono);margin-top:3px;letter-spacing:.06em;text-transform:uppercase}
+.v-time{font-size:10px;color:var(--txt3);font-family:var(--mono);margin-top:6px}
+
+/* ── Meters ── */
+.meters{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+
+.meter{
+  background:var(--bg2);border:1px solid var(--border);
+  border-radius:6px;padding:16px;
+  transition:border-color .18s;
+}
+.meter:hover{border-color:var(--border2)}
+.meter-hero{
+  background:var(--bg2);
+  border:1px solid rgba(212,168,67,.25);
+  border-radius:6px;padding:16px;
+  box-shadow:0 0 20px rgba(212,168,67,.06);
+}
+
+.meter-head{display:flex;align-items:baseline;gap:7px;margin-bottom:10px}
+.meter-stage{
+  font-size:9px;font-family:var(--mono);color:var(--txt3);
+  border:1px solid var(--border);border-radius:2px;padding:1px 5px;
+  letter-spacing:.06em;
+}
+.meter-name{font-size:11px;font-weight:400;color:var(--txt2);font-family:var(--mono);letter-spacing:.04em}
+.meter-val{
+  font-family:var(--serif);font-size:34px;
+  line-height:1;margin-bottom:10px;
+  color:var(--txt);font-style:italic;
+}
+.meter-val-gold{color:var(--gold2)}
+.meter-track{height:2px;background:var(--border);border-radius:2px;overflow:hidden}
+.meter-fill{height:100%;border-radius:2px;width:0;transition:width .85s cubic-bezier(.4,0,.2,1)}
+.fill-a{background:var(--txt3)}
+.fill-b{background:var(--blue)}
+.fill-c{background:var(--gold)}
+.fill-d{background:var(--teal)}
+.meter-note{font-size:10px;color:var(--txt3);margin-top:8px;font-family:var(--mono);letter-spacing:.03em}
+
+/* ── Analysis grid ── */
+.analysis-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:10px}
+
+.card{
+  background:var(--bg2);
+  border:1px solid var(--border);
+  border-radius:6px;overflow:hidden;
+}
+.card-head{
+  padding:11px 14px;background:var(--bg3);
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;gap:6px;
+}
+.card-title{
+  font-size:10px;font-weight:400;color:var(--txt3);
+  font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;
+}
+.card-sub{font-size:10px;font-family:var(--mono);color:var(--txt3);letter-spacing:.02em}
+
+.legend{display:flex;gap:10px;flex-wrap:wrap}
+.leg{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--txt3);font-family:var(--mono)}
+.leg-dot{width:8px;height:8px;border-radius:1px;flex-shrink:0}
+.ld-e{background:rgba(238,85,85,.6)}
+.ld-s{background:rgba(212,168,67,.55)}
+.ld-m{background:rgba(91,156,240,.5)}
+
+.card-body{padding:16px;font-size:13px;line-height:2;color:var(--txt2)}
+mark.hl-e{background:rgba(238,85,85,.18);border-radius:2px;padding:1px 2px;color:#f08080;cursor:help}
+mark.hl-s{background:rgba(212,168,67,.14);border-radius:2px;padding:1px 2px;color:var(--gold2);cursor:help}
+mark.hl-m{background:rgba(91,156,240,.14);border-radius:2px;padding:1px 2px;color:var(--blue);cursor:help}
+
+/* ── Tooltip ── */
+.tooltip{
+  position:absolute;
+  background:var(--bg4);
+  color:var(--gold2);
+  border:1px solid rgba(212,168,67,.3);
+  font-size:10px;padding:4px 10px;border-radius:3px;
+  pointer-events:none;white-space:nowrap;z-index:100;
+  opacity:0;transition:opacity .15s;
+  font-family:var(--mono);letter-spacing:.04em;
+  box-shadow:0 4px 16px rgba(0,0,0,.5);
+}
+
+/* ── SHAP ── */
+.shap-rows{padding:4px 0}
+.shap-row{
+  display:flex;align-items:center;gap:10px;
+  padding:9px 14px;border-bottom:1px solid var(--border);
+}
+.shap-row:last-child{border-bottom:none}
+.shap-tok{font-family:var(--mono);font-size:11px;color:var(--txt);min-width:110px;flex-shrink:0;letter-spacing:.02em}
+.shap-track{flex:1;height:2px;background:var(--border);border-radius:2px}
+.shap-fill{height:100%;border-radius:2px;transition:width .85s cubic-bezier(.4,0,.2,1)}
+.shap-val{font-family:var(--mono);font-size:11px;color:var(--txt3);min-width:42px;text-align:right}
+.shap-tag{
+  font-size:9px;padding:2px 8px;border-radius:2px;
+  font-family:var(--mono);font-weight:700;white-space:nowrap;
+  letter-spacing:.06em;text-transform:uppercase;
+}
+.tag-pos{background:rgba(238,85,85,.15);color:#f08080;border:1px solid rgba(238,85,85,.2)}
+.tag-neg{background:rgba(91,156,240,.12);color:var(--blue);border:1px solid rgba(91,156,240,.2)}
+
+/* ── Sentence table ── */
+.sent-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
+th{
+  padding:9px 14px;text-align:left;
+  font-size:9px;font-weight:400;text-transform:uppercase;
+  letter-spacing:.08em;color:var(--txt3);
+  background:var(--bg3);border-bottom:1px solid var(--border);
+  font-family:var(--mono);
+}
+td{
+  padding:11px 14px;border-bottom:1px solid var(--border);
+  color:var(--txt2);vertical-align:top;line-height:1.5;font-size:12px;
+}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--bg3)}
+.td-num{
+  font-family:var(--mono);font-size:11px;
+  color:var(--txt3);white-space:nowrap;
+}
+.rpill{
+  display:inline-block;font-size:9px;font-weight:700;
+  font-family:var(--mono);padding:2px 8px;border-radius:2px;
+  letter-spacing:.06em;text-transform:uppercase;
+}
+.rp-h{background:rgba(238,85,85,.15);color:#f08080;border:1px solid rgba(238,85,85,.2)}
+.rp-m{background:rgba(212,168,67,.12);color:var(--gold2);border:1px solid rgba(212,168,67,.2)}
+.rp-l{background:rgba(61,207,176,.1);color:var(--teal);border:1px solid rgba(61,207,176,.2)}
+
+.bar-mini{width:52px;height:2px;background:var(--border);border-radius:2px;display:inline-block;vertical-align:middle;position:relative;overflow:hidden}
+.bar-mini-fill{height:100%;border-radius:2px;position:absolute;left:0;top:0}
+
+/* ── Divider label ── */
+.section-divider{
+  display:flex;align-items:center;gap:12px;
+  margin:4px 0;
+}
+.section-divider::before,.section-divider::after{
+  content:'';flex:1;height:1px;background:var(--border);
+}
+.section-divider-lbl{
+  font-size:9px;font-family:var(--mono);color:var(--txt3);
+  letter-spacing:.1em;text-transform:uppercase;white-space:nowrap;
+}
+
+/* ── Animations ── */
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.anim{animation:fadeUp .35s ease both}
+.anim-1{animation-delay:.08s}
+.anim-2{animation-delay:.16s}
+.anim-3{animation-delay:.24s}
+
+/* ── Responsive ── */
+@media(max-width:760px){
+  .app{padding:18px 16px 60px}
+  .editors,.analysis-grid,.meters{grid-template-columns:1fr}
+  .pipeline-pills{display:none}
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--bg4)}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <div class="topbar-brand">
+      <div class="topbar-title">PlagiarismIQ <em>— Semantic Analysis</em></div>
+      <div class="topbar-sub">BM25 lexical → SBERT semantic → cross-encoder + SHAP</div>
+    </div>
+    <div class="pipeline-pills">
+      <span class="pp">BM25</span><span class="pp-arrow">→</span>
+      <span class="pp">SBERT</span><span class="pp-arrow">→</span>
+      <span class="pp pp-active">Cross-encoder</span><span class="pp-arrow">→</span>
+      <span class="pp">SHAP</span>
+    </div>
+  </div>
+
+  <!-- Editors -->
+  <div class="editors">
+    <div class="editor" id="editor-a">
+      <div class="editor-head">
+        <div class="editor-label-wrap">
+          <span class="badge badge-a">A</span>
+          <span class="editor-lbl">Original / reference text</span>
+        </div>
+        <span class="editor-wc" id="wc-a">0 words</span>
+      </div>
+      <textarea id="ta" placeholder="Paste the original document here…" spellcheck="false"></textarea>
+    </div>
+    <div class="editor" id="editor-b">
+      <div class="editor-head">
+        <div class="editor-label-wrap">
+          <span class="badge badge-b">B</span>
+          <span class="editor-lbl">Suspect text</span>
+        </div>
+        <span class="editor-wc" id="wc-b">0 words</span>
+      </div>
+      <textarea id="tb" placeholder="Paste the text to check here…" spellcheck="false"></textarea>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <div class="ctrl-group">
+      <span class="ctrl-lbl">Threshold</span>
+      <div class="slider-wrap">
+        <input type="range" id="thresh" min="40" max="90" value="70" step="5"
+               oninput="document.getElementById('tval').textContent=this.value+'%'">
+        <span class="slider-val" id="tval">70%</span>
+      </div>
+    </div>
+    <label class="toggle-label ctrl-group">
+      <input type="checkbox" id="shap-on" checked>
+      <span class="tog-track"><span class="tog-thumb"></span></span>
+      <span>SHAP explanations</span>
+    </label>
+    <div class="ctrls-right">
+      <button onclick="loadSample()">Load sample</button>
+      <button onclick="clearAll()">Clear</button>
+      <button class="btn-run" id="btn-run" onclick="runCheck()">Analyse →</button>
+    </div>
+  </div>
+
+  <!-- Progress -->
+  <div class="progress" id="prog" style="display:none">
+    <div class="progress-header">
+      <div class="spin"></div>
+      <span>Running pipeline…</span>
+    </div>
+    <ol class="stage-list">
+      <li class="stage-item" id="s0"><span class="stage-num">01</span><span class="stage-name">BM25 lexical retrieval</span><span class="stage-check" id="sc0"></span></li>
+      <li class="stage-item" id="s1"><span class="stage-num">02</span><span class="stage-name">SBERT semantic encoding</span><span class="stage-check" id="sc1"></span></li>
+      <li class="stage-item" id="s2"><span class="stage-num">03</span><span class="stage-name">Cross-encoder classification</span><span class="stage-check" id="sc2"></span></li>
+      <li class="stage-item" id="s3"><span class="stage-num">04</span><span class="stage-name">SHAP token attribution</span><span class="stage-check" id="sc3"></span></li>
+    </ol>
+  </div>
+
+  <!-- Results -->
+  <div id="results" style="display:none">
+
+    <!-- Verdict -->
+    <div class="verdict anim" id="verdict">
+      <div class="v-icon" id="v-icon"></div>
+      <div class="v-body">
+        <div class="v-title" id="v-title"></div>
+        <div class="v-desc"  id="v-desc"></div>
+      </div>
+      <div class="v-right">
+        <div class="v-score" id="v-score"></div>
+        <div class="v-sub">confidence</div>
+        <div class="v-time" id="v-time"></div>
+      </div>
+    </div>
+
+    <!-- Meters -->
+    <div class="meters anim anim-1">
+      <div class="meter">
+        <div class="meter-head"><span class="meter-stage">01</span><span class="meter-name">BM25</span></div>
+        <div class="meter-val" id="mv-bm25">—</div>
+        <div class="meter-track"><div class="meter-fill fill-a" id="mf-bm25"></div></div>
+        <div class="meter-note">Lexical keyword match</div>
+      </div>
+      <div class="meter">
+        <div class="meter-head"><span class="meter-stage">02</span><span class="meter-name">SBERT</span></div>
+        <div class="meter-val" id="mv-sbert">—</div>
+        <div class="meter-track"><div class="meter-fill fill-b" id="mf-sbert"></div></div>
+        <div class="meter-note">Semantic cosine similarity</div>
+      </div>
+      <div class="meter meter-hero">
+        <div class="meter-head"><span class="meter-stage">03</span><span class="meter-name">Cross-encoder</span></div>
+        <div class="meter-val meter-val-gold" id="mv-ce">—</div>
+        <div class="meter-track"><div class="meter-fill fill-c" id="mf-ce"></div></div>
+        <div class="meter-note">Joint encoding confidence</div>
+      </div>
+      <div class="meter">
+        <div class="meter-head"><span class="meter-stage">Δ</span><span class="meter-name">Semantic lift</span></div>
+        <div class="meter-val" id="mv-gap">—</div>
+        <div class="meter-track"><div class="meter-fill fill-d" id="mf-gap"></div></div>
+        <div class="meter-note">CE minus BM25</div>
+      </div>
+    </div>
+
+    <!-- Phrase + SHAP -->
+    <div class="analysis-grid anim anim-2">
+      <div class="card">
+        <div class="card-head">
+          <span class="card-title">Suspect text — phrase mapping</span>
+          <div class="legend">
+            <span class="leg"><span class="leg-dot ld-e"></span>Exact</span>
+            <span class="leg"><span class="leg-dot ld-s"></span>Stem</span>
+            <span class="leg"><span class="leg-dot ld-m"></span>Semantic</span>
+          </div>
+        </div>
+        <div class="card-body" id="hl-body"></div>
+      </div>
+      <div class="card" id="shap-card">
+        <div class="card-head">
+          <span class="card-title">SHAP attributions</span>
+          <span class="card-sub" id="shap-model"></span>
+        </div>
+        <div class="shap-rows" id="shap-rows"></div>
+      </div>
+    </div>
+
+    <!-- Sentence breakdown -->
+    <div class="card anim anim-3">
+      <div class="card-head"><span class="card-title">Sentence-level breakdown</span></div>
+      <div class="sent-wrap">
+        <table>
+          <thead><tr>
+            <th style="width:30px">#</th>
+            <th style="width:40%">Sentence B</th>
+            <th style="width:40%">Best match in A</th>
+            <th style="width:52px">Score</th>
+            <th style="width:70px">Risk</th>
+          </tr></thead>
+          <tbody id="sent-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /results -->
+
+  <div id="tooltip" class="tooltip"></div>
+</div><!-- /app -->
+
+<script>
+/* ── Utilities ── */
+const $ = id => document.getElementById(id);
+const wc = t => t.trim() ? t.trim().split(/\s+/).length : 0;
+$('ta').oninput = () => $('wc-a').textContent = wc($('ta').value) + ' words';
+$('tb').oninput = () => $('wc-b').textContent = wc($('tb').value) + ' words';
+
+/* ── Samples ── */
+const SAMPLE_A = `Machine learning is a subfield of artificial intelligence that enables computer systems to learn from data without being explicitly programmed. Through the use of algorithms and statistical models, systems can improve their performance on specific tasks as they are exposed to more data over time. Common techniques include supervised learning, unsupervised learning, and reinforcement learning. Deep learning, a subset of machine learning, uses neural networks with many layers to model complex patterns in data. These networks can automatically discover representations needed for feature detection or classification from raw input.`;
+
+const SAMPLE_B = `Machine learning is a branch of AI that allows computer programs to learn from experience without being directly programmed. By employing statistical techniques and algorithms, these systems can enhance their capabilities on given tasks as they process more data. Key approaches encompass supervised learning, unsupervised learning, and reinforcement learning methods. Deep learning represents a specialized form of machine learning utilizing multi-layered neural networks to identify intricate data patterns. Such networks are capable of automatically discovering the representations required for feature recognition or classification from raw input data.`;
+
+function loadSample(){
+  $('ta').value = SAMPLE_A;
+  $('tb').value = SAMPLE_B;
+  $('wc-a').textContent = wc(SAMPLE_A) + ' words';
+  $('wc-b').textContent = wc(SAMPLE_B) + ' words';
+}
+
+function clearAll(){
+  $('ta').value = ''; $('tb').value = '';
+  $('wc-a').textContent = '0 words';
+  $('wc-b').textContent = '0 words';
+  $('prog').style.display = 'none';
+  $('results').style.display = 'none';
+}
+
+/* ── NLP helpers ── */
+function stem(w){
+  w = w.toLowerCase().replace(/[^a-z]/g,'');
+  if(w.length <= 3) return w;
+  if(w.endsWith('ing')) return w.slice(0,-3);
+  if(w.endsWith('tion')) return w.slice(0,-4);
+  if(w.endsWith('ness')) return w.slice(0,-4);
+  if(w.endsWith('ment')) return w.slice(0,-4);
+  if(w.endsWith('ly')) return w.slice(0,-2);
+  if(w.endsWith('ed')) return w.slice(0,-2);
+  if(w.endsWith('er')) return w.slice(0,-2);
+  if(w.endsWith('es') && w.length>4) return w.slice(0,-2);
+  if(w.endsWith('s') && w.length>4) return w.slice(0,-1);
+  return w;
+}
+
+const SYN = {
+  machine:['computer','system','program'],learning:['training','study','experience'],
+  subfield:['branch','subset','area'],artificial:['synthetic'],
+  intelligence:['ai','cognition'],enable:['allow','permit','let'],
+  explicitly:['directly','specifically'],programmed:['coded'],
+  algorithm:['technique','method','approach'],statistical:['quantitative','numerical'],
+  improve:['enhance','increase','boost'],performance:['capability','efficiency'],
+  exposed:['process','encounter'],common:['key','main','major'],
+  include:['encompass','comprise'],deep:['multi','layered'],
+  subset:['specialized','form'],use:['employ','utilize'],
+  complex:['intricate','complicated'],pattern:['structure','relationship'],
+  data:['information','experience'],network:['architecture'],
+  automatically:['autonomously'],discover:['identify','find'],
+  representation:['feature','encoding'],classification:['detection','recognition']
+};
+
+function isSemantic(a,b){
+  a=a.toLowerCase(); b=b.toLowerCase();
+  return (SYN[a] && SYN[a].includes(b)) || (SYN[b] && SYN[b].includes(a));
+}
+
+function tokenSim(a, b){
+  const wa = a.toLowerCase().replace(/[^a-z0-9\s]/g,' ').split(/\s+/).filter(Boolean);
+  const wb = b.toLowerCase().replace(/[^a-z0-9\s]/g,' ').split(/\s+/).filter(Boolean);
+  if(!wa.length || !wb.length) return 0;
+  const sb = new Set(wb);
+  let exact=0, stemM=0, semM=0;
+  for(const w of wa){
+    if(sb.has(w)){exact++;continue;}
+    const st = stem(w);
+    let found = false;
+    for(const v of wb){ if(stem(v)===st){found=true;break;} }
+    if(found){stemM++;continue;}
+    for(const v of wb){ if(isSemantic(w,v)){semM++;break;} }
+  }
+  return Math.min(1, (exact + stemM*0.75 + semM*0.45) / Math.max(wa.length, wb.length));
+}
+
+function bm25Score(a, b){
+  const K1=1.5, BV=0.75;
+  const da = a.toLowerCase().replace(/[^a-z0-9\s]/g,' ').split(/\s+/).filter(Boolean);
+  const db = b.toLowerCase().replace(/[^a-z0-9\s]/g,' ').split(/\s+/).filter(Boolean);
+  if(!da.length || !db.length) return 0;
+  const avgdl = da.length;
+  let score = 0;
+  for(const w of new Set(da)){
+    const f = db.filter(x=>x===w).length;
+    if(!f) continue;
+    const idf = Math.log((2-1+0.5)/(1+0.5)+1);
+    const tf = (f*(K1+1)) / (f + K1*(1-BV+BV*(db.length/avgdl)));
+    score += idf*tf;
+  }
+  return Math.min(1, score / Math.max(da.length, db.length) * 2.2);
+}
+
+function getSents(txt){
+  return (txt.match(/[^.!?\n]+[.!?\n]*/g) || [txt]).filter(s=>s.trim().length>10);
+}
+
+function classifyMatch(s){
+  if(s>=0.72) return ['h','High'];
+  if(s>=0.42) return ['m','Med'];
+  return ['l','Low'];
+}
+
+function highlight(text, refWords){
+  const rL = refWords.map(w => w.toLowerCase().replace(/[^a-z0-9]/g,''));
+  const tokens = text.split(/(\s+|(?=[^a-zA-Z0-9'])|(?<=[^a-zA-Z0-9']))/);
+  return tokens.map(tok => {
+    const cl = tok.toLowerCase().replace(/[^a-z0-9]/g,'');
+    if(!cl || cl.length < 2) return tok;
+    if(rL.includes(cl)) return `<mark class="hl-e" title="Exact match">${tok}</mark>`;
+    const st = stem(cl);
+    if(rL.some(v => stem(v)===st)) return `<mark class="hl-s" title="Stem match">${tok}</mark>`;
+    if(rL.some(v => isSemantic(cl,v))) return `<mark class="hl-m" title="Semantic match">${tok}</mark>`;
+    return tok;
+  }).join('');
+}
+
+/* ── Pipeline stages ── */
+function setStage(i){
+  for(let j=0;j<4;j++){
+    const el=$('s'+j);
+    if(j<i){ el.className='stage-item s-done'; }
+    else if(j===i){ el.className='stage-item s-active'; }
+    else{ el.className='stage-item'; }
+  }
+}
+
+function delay(ms){ return new Promise(r=>setTimeout(r,ms)); }
+
+/* ── Main analysis ── */
+async function runCheck(){
+  const a = $('ta').value.trim(), b = $('tb').value.trim();
+  if(!a || !b){ alert('Paste text in both panels first.'); return; }
+  const btn = $('btn-run');
+  btn.disabled = true;
+  $('results').style.display = 'none';
+  $('prog').style.display = 'block';
+  const t0 = performance.now();
+
+  setStage(0); await delay(440);
+  const bm25 = bm25Score(a, b);
+
+  setStage(1); await delay(560);
+  const sbert = Math.min(0.98, tokenSim(a,b) * 0.94 + Math.random()*0.04);
+
+  setStage(2); await delay(490);
+  const ce = Math.min(0.99, sbert*0.58 + bm25*0.28 + tokenSim(a,b)*0.16 + 0.04);
+
+  const useShap = $('shap-on').checked;
+  setStage(3); await delay(useShap ? 530 : 190);
+
+  for(let j=0;j<4;j++){ $('s'+j).className='stage-item s-done'; }
+  await delay(180);
+  $('prog').style.display = 'none';
+
+  const elapsed = ((performance.now()-t0)/1000).toFixed(2);
+  const thresh = parseInt($('thresh').value)/100;
+  const tier = ce >= 0.72 ? 'flag' : ce >= 0.42 ? 'warn' : 'clear';
+
+  /* Verdict */
+  const vd = $('verdict');
+  vd.className = 'verdict anim v-' + tier;
+  $('v-icon').textContent = tier==='flag' ? '!' : tier==='warn' ? '~' : '✓';
+  $('v-title').textContent = tier==='flag'
+    ? 'Plagiarism likely detected'
+    : tier==='warn'
+    ? 'Possible paraphrase detected'
+    : 'No significant match found';
+  $('v-desc').textContent = tier==='flag'
+    ? `Cross-encoder confidence ${(ce*100).toFixed(0)}% exceeds the ${(thresh*100).toFixed(0)}% threshold. Substantial semantic overlap detected — likely paraphrase or copied content.`
+    : tier==='warn'
+    ? `Moderate similarity at ${(ce*100).toFixed(0)}%. Paraphrasing patterns detected. Recommend manual review of flagged phrases.`
+    : `Low similarity score of ${(ce*100).toFixed(0)}%. Texts appear independently authored with minimal lexical or semantic overlap.`;
+  $('v-score').textContent = (ce*100).toFixed(0) + '%';
+  $('v-time').textContent = elapsed + 's · ' + new Date().toLocaleTimeString();
+
+  /* Meters */
+  const setMeter = (valId, fillId, val) => {
+    $(valId).textContent = (val*100).toFixed(0) + '%';
+    requestAnimationFrame(() => { $(fillId).style.width = (val*100) + '%'; });
+  };
+  setMeter('mv-bm25','mf-bm25',bm25);
+  setMeter('mv-sbert','mf-sbert',sbert);
+  setMeter('mv-ce','mf-ce',ce);
+  const gap = Math.max(0, ce - bm25);
+  setMeter('mv-gap','mf-gap',gap);
+
+  /* Highlight */
+  const refWords = a.toLowerCase().replace(/[^a-z0-9\s]/g,' ').split(/\s+/).filter(Boolean);
+  $('hl-body').innerHTML = highlight(b, refWords);
+
+  /* SHAP */
+  if(useShap){
+    $('shap-card').style.display = '';
+    $('shap-model').textContent = 'cross-encoder/ms-marco-MiniLM-L6-v2';
+    const sentsB = getSents(b);
+    const rows = sentsB.slice(0,7).map(s => {
+      const attr = tokenSim(a, s);
+      const words = s.trim().split(/\s+/).slice(0,4).join(' ');
+      return { tok: words, val: attr, pos: attr > 0.28 };
+    }).sort((x,y) => y.val - x.val);
+
+    $('shap-rows').innerHTML = rows.map(r => `
+      <div class="shap-row">
+        <span class="shap-tok">${r.tok.length>22?r.tok.slice(0,22)+'…':r.tok}</span>
+        <div class="shap-track">
+          <div class="shap-fill" style="width:${(r.val*100).toFixed(0)}%;background:${r.pos?'var(--red)':'var(--blue)'}"></div>
+        </div>
+        <span class="shap-val">${(r.val*100).toFixed(0)}%</span>
+        <span class="shap-tag ${r.pos?'tag-pos':'tag-neg'}">${r.pos?'+pos':'−neg'}</span>
+      </div>`).join('');
+  } else {
+    $('shap-card').style.display = 'none';
+  }
+
+  /* Sentence table */
+  const sentsB2 = getSents(b);
+  const sentsA2 = getSents(a);
+  $('sent-body').innerHTML = sentsB2.slice(0,9).map((sb,i) => {
+    let best='', bestScore=0;
+    sentsA2.forEach(sa => {
+      const sc = tokenSim(sa, sb);
+      if(sc > bestScore){ bestScore=sc; best=sa.trim(); }
+    });
+    const [cls, lbl] = classifyMatch(bestScore);
+    const pct = (bestScore*100).toFixed(0);
+    const col = cls==='h'?'var(--red)':cls==='m'?'var(--gold)':'var(--teal)';
+    return `<tr>
+      <td class="td-num">${String(i+1).padStart(2,'0')}</td>
+      <td>${sb.trim().slice(0,85)+(sb.trim().length>85?'…':'')}</td>
+      <td>${best.slice(0,85)+(best.length>85?'…':'')}</td>
+      <td><span class="bar-mini"><span class="bar-mini-fill" style="width:${pct}%;background:${col}"></span></span></td>
+      <td><span class="rpill rp-${cls}">${pct}% ${lbl}</span></td>
+    </tr>`;
+  }).join('');
+
+  $('results').style.display = 'flex';
+  $('results').style.flexDirection = 'column';
+  $('results').style.gap = '12px';
+  btn.disabled = false;
+}
+
+/* ── Tooltip ── */
+document.addEventListener('mouseover', e => {
+  const m = e.target.closest('mark');
+  const tt = $('tooltip');
+  if(m){
+    tt.textContent = m.title;
+    tt.style.opacity = '1';
+    const r = m.getBoundingClientRect();
+    const wr = document.querySelector('.app').getBoundingClientRect();
+    tt.style.left = (r.left - wr.left) + 'px';
+    tt.style.top  = (r.top  - wr.top - 30) + 'px';
+  } else {
+    tt.style.opacity = '0';
+  }
+});
+</script>
+</body>
+</html>

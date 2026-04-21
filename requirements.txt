@@ -1,0 +1,23 @@
+# Plagiarism Detector — Python dependencies
+# Install: pip install -r requirements.txt
+
+# ── NLP pipeline ────────────────────────────────────────────────────────
+rank-bm25==0.2.2
+sentence-transformers>=2.7.0
+transformers>=4.40.0
+torch>=2.2.0
+shap>=0.45.0
+
+# ── Data utilities ───────────────────────────────────────────────────────
+numpy>=1.26.0
+scipy>=1.13.0
+pandas>=2.2.0
+
+# ── Web server ───────────────────────────────────────────────────────────
+flask>=3.0.0
+flask-cors>=4.0.0
+gunicorn>=22.0.0         # production WSGI (Linux/Mac)
+
+# ── HuggingFace datasets (only needed for STS-B eval, not the API) ───────
+datasets>=2.19.0
+tqdm>=4.66.0
